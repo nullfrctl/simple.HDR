@@ -1,47 +1,26 @@
-// Include ReShade libraries.
+/*
+
+simple.HDR | main file
+________________________________________________________________________________
+
+*/
+
+/* Includes */
+
+// Include ReShade library
 #include "ReShade.fxh"
-#include "ReShadeUI.fxh"
 
-/* ACES functions -- courtesy of Baking Lab */
+// Turn off full ACES support for now, opting for BakingLab's approx.
+// DON'T TOUCH THIS, FULL ACES SUPPORT IS NOT IMPLEMENTED
+#ifndef _SIMPLE_HDR_ACES_APPROX
+    #define _SIMPLE_HDR_ACES_APPROX 1
+#endif
 
-// sRGB => XYZ => D65_2_D60 => AP1 => RRT_SAT
-static const float3x3 ACESInputMat = float3x3(
-    0.59719, 0.35458, 0.04823,
-    0.07600, 0.90834, 0.01566,
-    0.02840, 0.13383, 0.83777
-);
+// Include ACES (thx to Unity FPSSample & BakingLab by MJP)
+#include "ACES.fxh"
 
-// ODT_SAT => XYZ => D60_2_D65 => sRGB
-static const float3x3 ACESOutputMat = float3x3(
-     1.60475, -0.53108, -0.07367,
-    -0.10208,  1.10813, -0.00605,
-    -0.00327, -0.07276,  1.07602
-);
-
-// RRT => ODT
-float3 RRTAndODTFit(float3 v)
-{
-    float3 a = v * (v + 0.0245786f) - 0.000090537f;
-    float3 b = v * (0.983729f * v + 0.4329510f) + 0.238081f;
-    return a / b;
-}
-
-/* UI */
-
-uniform int PreprocHelp
-<
-    ui_text = "simple.HDR | preprocessor definitions guide\n"
-              "\n"
-              "SIMPLE_HDR_SRGB: \n"
-              "\tControls wether simple.HDR converts the sRGB backbuffer to linear sRGB.\n"
-              "\tThis is automatically set to 0 when using 10-bit backbuffer and vice-versa.\n"
-              "\n"
-              "OPEN \"Preprocessor definitions\" BELOW\n"
-              "\n"
-              "____________________________________________________________________________________";
-    ui_label = " ";
-    ui_type = "radio";
->;
+// Include UI file.
+#include "simple.HDR.UI.fxh"
 
 /* HDR */
 
@@ -67,14 +46,20 @@ sampler2D BackBuffer
     SRGBTexture = SIMPLE_HDR_SRGB;
 };
 
-void HDRPS(in float4 vpos : SV_POSITION, in float2 texcoord : TEXCOORD0, out float4 o : SV_TARGET0)
+float3 HDRPS
+(
+    in float4 vpos     : SV_POSITION, 
+    in float2 texcoord : TEXCOORD0
+) : SV_TARGET
 {
+	// Don't process if ACES mix is zero.
+	if (ACESMix == 0.0) discard;
 
     // Sample backbuffer texture
-    o = tex2D(BackBuffer, texcoord.xy);
+    float3 res = tex2D(BackBuffer, texcoord.xy).rgb;
 
     // Copy backbuffer texture
-    float3 color = o.rgb;
+    float3 color = res;
 
     // Convert linear sRGB to RRT
     color = mul(ACESInputMat, color);
@@ -92,8 +77,10 @@ void HDRPS(in float4 vpos : SV_POSITION, in float2 texcoord : TEXCOORD0, out flo
     color *= 1.8f;
 
     // Copy back color to backbuffer
-    o.rgb = color;
-    o.a = 1.0f;
+    res = lerp(res, color, ACESMix);
+
+    // Output result
+    return res;
 }
 
 technique simpleHDR < ui_label = "simple.HDR"; >
